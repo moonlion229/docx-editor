@@ -11,6 +11,7 @@ import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from xml.dom.minidom import Element
 
 import defusedxml.minidom
 import defusedxml.sax
@@ -119,6 +120,174 @@ def compute_paragraph_hash(paragraph) -> str:
     """
     text = build_text_map(paragraph).text
     return f"{zlib.crc32(text.encode('utf-8')) & 0xFFFF:04x}"
+
+
+@dataclass(frozen=True)
+class TableCell:
+    """Position of a paragraph's enclosing table cell.
+
+    Coordinates are 1-based. ``col`` is the logical-grid column accounting
+    for ``w:gridSpan`` of preceding cells in the same row, so a cell that
+    visually sits in column 4 reports ``col=4`` even when earlier cells
+    in the row are merged.
+    """
+
+    index: int  # 1-based, doc-wide, depth-first order of <w:tbl>
+    row: int  # 1-based
+    col: int  # 1-based logical grid (accounts for w:gridSpan)
+    depth: int  # 1 = outermost, >1 = nested table
+
+
+@dataclass(frozen=True)
+class ParagraphLocation:
+    """Structural location of a paragraph within the document body.
+
+    Currently reports only table membership. The shape is intentionally
+    extensible: future releases may add other container kinds (header,
+    footer, footnote), section index, list position, etc., as plain
+    optional field additions.
+    """
+
+    table: TableCell | None
+
+    @property
+    def in_table(self) -> bool:
+        """True iff the paragraph lives inside a ``<w:tc>`` cell."""
+        return self.table is not None
+
+
+def _innermost_ancestor(node, tag_name: str) -> Element | None:
+    """Return the closest ancestor element with ``tag_name``, or None."""
+    if node is None:  # pragma: no cover - defensive; callers guard against None
+        return None
+    parent = node.parentNode
+    while parent is not None:
+        if parent.nodeType == parent.ELEMENT_NODE and parent.tagName == tag_name:
+            return parent
+        parent = parent.parentNode
+    return None
+
+
+def _direct_grid_span(tc) -> int:
+    """Return the ``w:gridSpan`` value of ``tc`` (1 if absent or malformed).
+
+    Only inspects ``tc``'s direct ``w:tcPr`` child, so nested tables inside
+    the cell never leak their own gridSpan values.
+    """
+    for child in tc.childNodes:
+        if child.nodeType != child.ELEMENT_NODE or child.tagName != "w:tcPr":
+            continue
+        for gs in child.childNodes:
+            if gs.nodeType == gs.ELEMENT_NODE and gs.tagName == "w:gridSpan":
+                val = gs.getAttribute("w:val")
+                if val:
+                    try:
+                        return max(1, int(val))
+                    except ValueError:
+                        return 1
+                return 1
+        return 1
+    return 1
+
+
+def _row_index_in_table(tbl, target_tr) -> int:
+    """1-based index of ``target_tr`` among ``tbl``'s rows.
+
+    Walks descendant ``w:tr`` elements but filters to those whose innermost
+    enclosing ``w:tbl`` is ``tbl`` — so rows nested inside child tables are
+    skipped, and ``<w:sdt><w:sdtContent>`` wrappers are transparent.
+    """
+    n = 0
+    for tr in tbl.getElementsByTagName("w:tr"):
+        if _innermost_ancestor(tr, "w:tbl") is not tbl:
+            continue
+        n += 1
+        if tr is target_tr:
+            return n
+    raise ValueError("target_tr not found in tbl")  # pragma: no cover
+
+
+def _initial_grid_offset(tr) -> int:
+    """``<w:trPr>/<w:gridBefore w:val="N"/>`` — grid columns skipped at row start.
+
+    Returns 0 when absent. A row that opens with ``gridBefore=2`` makes its
+    first ``w:tc`` land at logical column 3.
+    """
+    for child in tr.childNodes:
+        if child.nodeType != child.ELEMENT_NODE or child.tagName != "w:trPr":
+            continue
+        for gb in child.childNodes:
+            if gb.nodeType == gb.ELEMENT_NODE and gb.tagName == "w:gridBefore":
+                val = gb.getAttribute("w:val")
+                if val:
+                    try:
+                        return max(0, int(val))
+                    except ValueError:
+                        return 0
+                return 0
+        return 0
+    return 0
+
+
+def _logical_col_in_row(tr, target_tc) -> int:
+    """1-based logical column (gridSpan- and gridBefore-aware) of ``target_tc``.
+
+    Walks descendant ``w:tc`` elements filtered to those whose innermost
+    enclosing ``w:tr`` is ``tr`` — so cells nested inside child tables are
+    skipped, and ``<w:sdt><w:sdtContent>`` cell wrappers are transparent.
+    """
+    col = 1 + _initial_grid_offset(tr)
+    for tc in tr.getElementsByTagName("w:tc"):
+        if _innermost_ancestor(tc, "w:tr") is not tr:
+            continue
+        if tc is target_tc:
+            return col
+        col += _direct_grid_span(tc)
+    raise ValueError("target_tc not found in tr")  # pragma: no cover
+
+
+def _doc_wide_table_index(dom, target_tbl) -> int:
+    """1-based depth-first index of ``target_tbl`` among all ``<w:tbl>``."""
+    for i, tbl in enumerate(dom.getElementsByTagName("w:tbl"), start=1):
+        if tbl is target_tbl:
+            return i
+    raise ValueError("target_tbl not found in document")  # pragma: no cover
+
+
+def _table_depth(tbl) -> int:
+    """1 = outermost table; +1 for each enclosing ``<w:tbl>`` ancestor."""
+    depth = 1
+    parent = tbl.parentNode
+    while parent is not None:
+        if parent.nodeType == parent.ELEMENT_NODE and parent.tagName == "w:tbl":
+            depth += 1
+        parent = parent.parentNode
+    return depth
+
+
+def _compute_paragraph_location(paragraph) -> ParagraphLocation:
+    """Compute the structural location of a ``<w:p>`` element.
+
+    Reports the innermost enclosing ``<w:tc>`` (and its table), or
+    ``ParagraphLocation(table=None)`` if the paragraph is not inside any
+    table cell.
+    """
+    tc = _innermost_ancestor(paragraph, "w:tc")
+    if tc is None:
+        return ParagraphLocation(table=None)
+    tr = _innermost_ancestor(tc, "w:tr")
+    tbl = _innermost_ancestor(tr, "w:tbl") if tr is not None else None
+    if tr is None or tbl is None:
+        # Malformed table structure — tolerate by treating as body content.
+        return ParagraphLocation(table=None)
+    return ParagraphLocation(
+        table=TableCell(
+            index=_doc_wide_table_index(paragraph.ownerDocument, tbl),
+            row=_row_index_in_table(tbl, tr),
+            col=_logical_col_in_row(tr, tc),
+            depth=_table_depth(tbl),
+        )
+    )
 
 
 def _is_inside_element(node, tag_name: str) -> bool:
