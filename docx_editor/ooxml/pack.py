@@ -16,6 +16,12 @@ import defusedxml.minidom
 EXCLUDED_PATHS = {Path("meta.json")}
 
 
+def _ignore_symlinks(directory: str, names: list[str]) -> list[str]:
+    """Skip symlinks so they cannot leak external host content into the archive."""
+    base = Path(directory)
+    return [n for n in names if (base / n).is_symlink()]
+
+
 def pack_document(input_dir: str | Path, output_file: str | Path, validate: bool = False) -> bool:
     """Pack a directory into an Office file (.docx/.pptx/.xlsx).
 
@@ -28,11 +34,14 @@ def pack_document(input_dir: str | Path, output_file: str | Path, validate: bool
         bool: True if successful, False if validation failed
 
     Raises:
-        ValueError: If input_dir doesn't exist or output_file has wrong extension
+        ValueError: If input_dir is a symlink, doesn't exist, or output_file has
+            the wrong extension
     """
     input_dir = Path(input_dir)
     output_file = Path(output_file)
 
+    if input_dir.is_symlink():
+        raise ValueError(f"{input_dir} is a symlink")
     if not input_dir.is_dir():
         raise ValueError(f"{input_dir} is not a directory")
     if output_file.suffix.lower() not in {".docx", ".pptx", ".xlsx"}:
@@ -41,7 +50,7 @@ def pack_document(input_dir: str | Path, output_file: str | Path, validate: bool
     # Work in temporary directory to avoid modifying original
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_content_dir = Path(temp_dir) / "content"
-        shutil.copytree(input_dir, temp_content_dir)
+        shutil.copytree(input_dir, temp_content_dir, ignore=_ignore_symlinks)
 
         # Process XML files to remove pretty-printing whitespace
         for pattern in ["*.xml", "*.rels"]:
