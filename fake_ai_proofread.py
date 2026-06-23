@@ -78,7 +78,21 @@ def fake_proofread(paragraphs_data):
                 "reason": "補上冒號，使引述語氣更清楚。",
                 "confidence": 0.95
             })
-            
+        if "成本為100元" in text:
+            edits.append({
+                "paragraph_index": idx,
+                "action": "add",
+                "anchor_text": "100元",
+                "position": "before",
+                "added_text": "港幣",
+                "original_text": "100元",
+                "suggested_text": "港幣100元",
+                "comment_text": "",
+                "category": "單位",
+                "severity": "low",
+                "reason": "補上幣別，使金額表述更清楚。",
+                "confidence": 0.95
+            })    
         if "人物之間的關係" in text:
             edits.append({
                 "paragraph_index": idx,
