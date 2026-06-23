@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 
 import streamlit as st
-
+import pandas as pd
 from fake_ai_proofread import extract_paragraphs, fake_proofread
 from proofread_apply import apply_edits_to_docx
 
@@ -13,6 +13,7 @@ st.set_page_config(
     page_icon="📝",
     layout="wide",
 )
+
 
 
 st.title("AI 校對 Word 測試版")
@@ -75,7 +76,18 @@ if st.button("開始假 AI 校對並產生追蹤修訂 Word"):
                     "信心": edit.get("confidence", ""),
                 })
 
-            st.dataframe(display_rows, use_container_width=True)
+            display_df = pd.DataFrame(display_rows)
+
+            st.dataframe(display_df, use_container_width=True)
+
+            csv_data = display_df.to_csv(index=False).encode("utf-8-sig")
+
+            st.download_button(
+                label="下載校對建議 CSV",
+                data=csv_data,
+                file_name="proofread_suggestions.csv",
+                mime="text/csv",
+            )
         else:
             st.info("沒有找到校對建議。")
 
