@@ -59,6 +59,23 @@ def apply_edits_to_docx(input_file, edits_file, output_file):
                 print(f"已套用第 {i} 條：第 {paragraph_index} 段，把「{original_text}」改成「{suggested_text}」")
                 applied_count += 1
 
+            elif action == "add":
+                anchor_text = edit.get("anchor_text") or edit.get("original_text")
+                position = edit.get("position", "after")
+                added_text = edit.get("added_text", "")
+
+                if position == "after":
+                    original_text = anchor_text
+                    suggested_text = anchor_text + added_text
+                elif position == "before":
+                    original_text = anchor_text
+                    suggested_text = added_text + anchor_text
+                else:
+                    raise ValueError(f"Unsupported add position: {position}")
+
+                # 下面這一行要照你原本 replace action 的寫法
+                doc.replace(original_text, suggested_text, paragraph=ref)
+                
             elif action == "delete":
                 doc.replace(original_text, "", paragraph=ref)
                 print(f"已套用第 {i} 條：第 {paragraph_index} 段，刪除「{original_text}」")

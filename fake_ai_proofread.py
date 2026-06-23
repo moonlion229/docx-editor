@@ -63,6 +63,22 @@ def fake_proofread(paragraphs_data):
                 "confidence": 0.9
             })
 
+        if "他說這很好" in text:
+            edits.append({
+                "paragraph_index": idx,
+                "action": "add",
+                "anchor_text": "他說",
+                "position": "after",
+                "added_text": "：",
+                "original_text": "他說",
+                "suggested_text": "他說：",
+                "comment_text": "",
+                "category": "標點",
+                "severity": "low",
+                "reason": "補上冒號，使引述語氣更清楚。",
+                "confidence": 0.95
+            })
+            
         if "人物之間的關係" in text:
             edits.append({
                 "paragraph_index": idx,

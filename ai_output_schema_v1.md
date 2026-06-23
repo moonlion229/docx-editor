@@ -121,6 +121,16 @@ AI 對此建議的信心，0 到 1 之間。
     "reason": "直接改寫可能改變作者語氣，建議先用批註提醒。",
     "confidence": 0.8
   }
+  {
+  "action": "add",
+  "paragraph_index": 0,
+  "anchor_text": "他說",
+  "position": "after",
+  "added_text": "：",
+  "reason": "補上冒號，使引述語氣更清楚。",
+  "severity": "low",
+  "category": "punctuation"
+  }
 ]
 
 ## AI 輸出限制
