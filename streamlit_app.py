@@ -8,7 +8,7 @@ from gemini_proofread import request_gemini_proofread_response
 from fake_ai_proofread import extract_paragraphs, fake_proofread, validate_edits
 from proofread_apply import apply_edits_to_docx
 from ai_issue_parser import MOCK_AI_RESPONSE_TEXT, parse_ai_issues_response
-
+from excel_export import build_issues_excel
 st.set_page_config(
     page_title="AI 校對 Word 測試版",
     page_icon="📝",
@@ -194,6 +194,16 @@ with tempfile.TemporaryDirectory() as tmpdir:
             file_name="proofread_suggestions.csv",
             mime="text/csv",
         )
+
+        excel_data = build_issues_excel(edited_df.to_dict(orient="records"))
+
+        st.download_button(
+            label="下載校對建議 Excel",
+            data=excel_data,
+            file_name="proofread_issues.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     else:
         st.info("沒有通過驗證的校對建議。")
         st.write(
