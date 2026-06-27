@@ -1,7 +1,7 @@
 import json
 import tempfile
 from pathlib import Path
-
+import html
 import streamlit as st
 import pandas as pd
 from gemini_proofread import request_gemini_proofread_response
@@ -9,6 +9,100 @@ from fake_ai_proofread import extract_paragraphs, fake_proofread, validate_edits
 from proofread_apply import apply_edits_to_docx
 from ai_issue_parser import MOCK_AI_RESPONSE_TEXT, parse_ai_issues_response
 from excel_export import build_issues_excel
+SENTENCE_BOUNDARIES = "。！？；;\n"
+
+GRADE_HELP = {
+    "A": "A 可直接套用：明確錯誤，通常可直接接受修訂。",
+    "B": "B 建議套用：大致明確，但仍建議快速檢查。",
+    "C": "C 只作提示：不直接改文，只提醒校對員留意。",
+    "D": "D 需人工判斷：涉及語意、事實或風格，必須人工決定。",
+}
+
+
+def get_grade_help(edit):
+    grade = edit.get("grade", "")
+    return GRADE_HELP.get(grade, edit.get("grade_label", ""))
+
+
+def highlight_text(text, target, color="#c0392b", strike=False):
+    safe_text = html.escape(text or "")
+    safe_target = html.escape(target or "")
+
+    if not safe_target or safe_target not in safe_text:
+        return safe_text
+
+    style = f"color:{color}; font-weight:700;"
+    if strike:
+        style += " text-decoration:line-through;"
+
+    return safe_text.replace(
+        safe_target,
+        f'<span style="{style}">{safe_target}</span>',
+        1,
+    )
+
+
+def render_original_sentence(action_type, original_sentence, original_text):
+    return highlight_text(
+        original_sentence,
+        original_text,
+        color="#c0392b",
+        strike=(action_type == "delete"),
+    )
+
+
+def render_suggested_sentence(action_type, suggested_sentence, suggested_text):
+    if action_type == "replace":
+        return highlight_text(suggested_sentence, suggested_text, color="#1e8449")
+    return html.escape(suggested_sentence or "")
+
+def build_paragraph_map(paragraphs_data):
+    return {
+        paragraph["paragraph_index"]: paragraph["text"]
+        for paragraph in paragraphs_data
+    }
+
+
+def extract_original_sentence(paragraph_text, original_text, fallback_chars=40):
+    if not paragraph_text:
+        return original_text
+
+    if not original_text or original_text not in paragraph_text:
+        return paragraph_text[: fallback_chars * 2].strip()
+
+    start = paragraph_text.find(original_text)
+    end = start + len(original_text)
+
+    sentence_start = 0
+    for index in range(start - 1, -1, -1):
+        if paragraph_text[index] in SENTENCE_BOUNDARIES:
+            sentence_start = index + 1
+            break
+
+    sentence_end = len(paragraph_text)
+    for index in range(end, len(paragraph_text)):
+        if paragraph_text[index] in SENTENCE_BOUNDARIES:
+            sentence_end = index + 1
+            break
+
+    sentence = paragraph_text[sentence_start:sentence_end].strip()
+    if sentence:
+        return sentence
+
+    fallback_start = max(start - fallback_chars, 0)
+    fallback_end = min(end + fallback_chars, len(paragraph_text))
+    return paragraph_text[fallback_start:fallback_end].strip()
+
+
+def build_suggested_sentence(action_type, original_sentence, original_text, suggested_text):
+    if action_type == "replace":
+        return original_sentence.replace(original_text, suggested_text, 1)
+    if action_type == "delete":
+        return original_sentence.replace(original_text, "", 1)
+    if action_type == "comment":
+        return "不直接修改，加入批註"
+    return suggested_text
+
 st.set_page_config(
     page_title="AI 校對 Word 測試版",
     page_icon="📝",
@@ -48,7 +142,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     input_path.write_bytes(uploaded_file.getvalue())
 
     paragraphs_data = extract_paragraphs(str(input_path))
-
+    paragraph_map = build_paragraph_map(paragraphs_data)
     st.subheader("讀取到的段落")
     st.write(f"共讀取到 {len(paragraphs_data)} 個段落。")
     st.dataframe(paragraphs_data, use_container_width=True)
@@ -85,6 +179,20 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     for index, edit in enumerate(valid_edits, start=1):
         action_type = edit.get("action_type") or edit.get("action", "")
+        paragraph_text = paragraph_map.get(edit.get("paragraph_index"), "")
+        original_sentence = extract_original_sentence(
+            paragraph_text,
+            edit.get("original_text", ""),
+        )
+        suggested_sentence = build_suggested_sentence(
+            action_type,
+            original_sentence,
+            edit.get("original_text", ""),
+            edit.get("suggested_text", ""),
+        )
+
+        edit["original_sentence"] = original_sentence
+        edit["suggested_sentence"] = suggested_sentence
         issue_id = edit.get("issue_id") or f"edit_{index}"
         apply_key = f"apply_issue_{issue_id}"
 
@@ -93,6 +201,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
         display_rows.append({
             "issue_id": issue_id,
+            "rule_id": edit.get("rule_id", ""),
             "是否套用": st.session_state[apply_key],
             "位置": edit.get("position_label", ""),
             "段落": edit.get("paragraph_index", ""),
@@ -102,6 +211,8 @@ with tempfile.TemporaryDirectory() as tmpdir:
             "分級": edit.get("grade_label", ""),
             "原文片段": edit.get("original_text", ""),
             "建議文字": edit.get("suggested_text", ""),
+            "原文句子": original_sentence,
+            "建議句子": suggested_sentence,
             "批註內容": edit.get("comment_text", ""),
             "原因": edit.get("reason", ""),
             "全書一致性": edit.get("global_consistency", ""),
@@ -113,42 +224,6 @@ with tempfile.TemporaryDirectory() as tmpdir:
     checked_edits = []
 
     if display_rows:
-        display_df = pd.DataFrame(display_rows)
-
-        edited_df = st.data_editor(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-            disabled=[
-                "issue_id",
-                "位置",
-                "段落",
-                "動作",
-                "類別代碼",
-                "類別",
-                "分級",
-                "原文片段",
-                "建議文字",
-                "批註內容",
-                "原因",
-                "全書一致性",
-                "加入用字規則",
-                "需人工覆核",
-                "需查證來源",
-            ],
-            column_config={
-                "是否套用": st.column_config.CheckboxColumn(
-                    "是否套用",
-                    default=True,
-                )
-            },
-        )
-
-        for index, edit in enumerate(valid_edits, start=1):
-            issue_id = edit.get("issue_id") or f"edit_{index}"
-            apply_key = f"apply_issue_{issue_id}"
-            st.session_state[apply_key] = bool(edited_df.iloc[index - 1]["是否套用"])
-
         st.subheader("逐條審核")
 
         for index, edit in enumerate(valid_edits, start=1):
@@ -159,25 +234,50 @@ with tempfile.TemporaryDirectory() as tmpdir:
             st.markdown("---")
             st.checkbox("是否套用", key=apply_key)
 
-            st.write(
-                f"位置：{edit.get('position_label', '')}｜"
-                f"段落：{edit.get('paragraph_index', '')}｜"
-                f"動作：{action_type}"
+            st.write(f"位置：{edit.get('position_label', '')}")
+            st.write(f"問題類型：{edit.get('category_label', '')}")
+            st.write(f"建議程度：{get_grade_help(edit)}")
+
+            st.markdown("原文句子：", help="紅色部分是系統定位到的問題位置。")
+            st.markdown(
+                render_original_sentence(
+                    action_type,
+                    edit.get("original_sentence", ""),
+                    edit.get("original_text", ""),
+                ),
+                unsafe_allow_html=True,
             )
-            st.write(f"原文片段：{edit.get('original_text', '')}")
-            st.write(f"建議改為：{edit.get('suggested_text', '')}")
 
             if action_type == "comment":
+                st.write("建議處理：不直接修改，加入批註")
                 st.write(f"批註內容：{edit.get('comment_text', '')}")
+            elif action_type == "delete":
+                st.write(f"建議處理：刪除「{edit.get('original_text', '')}」")
+                st.write(f"刪除後句子：{edit.get('suggested_sentence', '')}")
+            else:
+                st.write("建議改為：")
+                st.markdown(
+                    render_suggested_sentence(
+                        action_type,
+                        edit.get("suggested_sentence", ""),
+                        edit.get("suggested_text", ""),
+                    ),
+                    unsafe_allow_html=True,
+                )
 
             st.write(f"原因：{edit.get('reason', '')}")
-            st.write(f"建議程度 / 分級：{edit.get('grade_label', '')}")
-            
+
         checked_edits = [
             edit
             for index, edit in enumerate(valid_edits, start=1)
             if st.session_state[f"apply_issue_{edit.get('issue_id') or f'edit_{index}'}"]
         ]
+
+        for index, row in enumerate(display_rows, start=1):
+            issue_id = row.get("issue_id") or f"edit_{index}"
+            row["是否套用"] = st.session_state.get(f"apply_issue_{issue_id}", True)
+
+        display_df = pd.DataFrame(display_rows)
 
         st.write(
             f"總建議數：{total_issue_count}｜"
@@ -186,7 +286,10 @@ with tempfile.TemporaryDirectory() as tmpdir:
             f"驗證錯誤數：{len(validation_errors)}"
         )
 
-        csv_data = edited_df.to_csv(index=False).encode("utf-8-sig")
+        with st.expander("進階資料 / 完整校對建議表"):
+            st.dataframe(display_df, use_container_width=True)
+
+        csv_data = display_df.to_csv(index=False).encode("utf-8-sig")
 
         st.download_button(
             label="下載校對建議 CSV",
@@ -195,7 +298,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
             mime="text/csv",
         )
 
-        excel_data = build_issues_excel(edited_df.to_dict(orient="records"))
+        excel_data = build_issues_excel(display_df.to_dict(orient="records"))
 
         st.download_button(
             label="下載校對建議 Excel",

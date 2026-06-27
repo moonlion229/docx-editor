@@ -17,6 +17,8 @@ REQUIRED_ISSUE_FIELDS = {
     "add_to_book_rules",
     "needs_human_review",
     "needs_source_check",
+    "original_sentence",
+    "suggested_sentence",
 }
 
 
@@ -34,6 +36,24 @@ MOCK_AI_RESPONSE_TEXT = json.dumps(
             "grade": "low",
             "grade_label": "低",
             "reason": "補上冒號，使引述語氣更清楚。",
+            "global_consistency": False,
+            "add_to_book_rules": False,
+            "needs_human_review": False,
+            "needs_source_check": False,
+            "comment_text": "",
+        },
+        {
+            "issue_id": "mock-invalid-original-text",
+            "paragraph_index": 1,
+            "position_label": "錯誤示範",
+            "original_text": "這段文字不存在",
+            "suggested_text": "測試",
+            "action_type": "replace",
+            "category_code": "test",
+            "category_label": "測試",
+            "grade": "low",
+            "grade_label": "低",
+            "reason": "測試 validation 是否能擋下不存在的原文。",
             "global_consistency": False,
             "add_to_book_rules": False,
             "needs_human_review": False,
@@ -170,6 +190,10 @@ def parse_ai_issues_response(response_text, paragraphs_data):
         valid_issue["category"] = valid_issue.get("category_label", "")
         valid_issue["severity"] = valid_issue.get("grade", "")
         valid_issue.setdefault("comment_text", "")
+        valid_issue.setdefault("original_sentence", "")
+        valid_issue.setdefault("suggested_sentence", "")
+        valid_issue.setdefault("rule_id", "")
         valid_issues.append(valid_issue)
+ 
 
     return valid_issues, validation_errors

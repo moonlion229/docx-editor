@@ -6,7 +6,7 @@ authors = [{ name = "Pablo Speciale", email = "pablospe@users.noreply.github.com
 readme = "README.md"
 keywords = ['python']
 requires-python = ">=3.10,<4.0"
-dependencies = ["defusedxml>=0.7.1", "google-genai>=1.0.0"]
+dependencies = ["defusedxml>=0.7.1", "google-genai>=1.0.0", "openpyxl>=3.1.0"]
 classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python",

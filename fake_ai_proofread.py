@@ -13,8 +13,8 @@ REQUIRED_ISSUE_FIELDS = {
 
 def make_issue(issue_id, paragraph_index, action_type, original_text, suggested_text,
                category_code, category_label, grade, grade_label, reason,
-               position_label="段落內文字", comment_text="",
-               global_consistency=False, add_to_book_rules=False,
+               position_label="段落內文字", comment_text="",original_sentence="",
+               suggested_sentence="", global_consistency=False, add_to_book_rules=False,
                needs_human_review=False, needs_source_check=False,
                confidence=0.9):
     return {
@@ -38,6 +38,8 @@ def make_issue(issue_id, paragraph_index, action_type, original_text, suggested_
         "needs_human_review": needs_human_review,
         "needs_source_check": needs_source_check,
         "confidence": confidence,
+        "original_sentence": original_sentence,
+        "suggested_sentence": suggested_sentence,
     }
 
 def extract_paragraphs(input_file):
@@ -74,19 +76,6 @@ def fake_proofread(paragraphs_data):
         idx = paragraph["paragraph_index"]
         text = paragraph["text"]
 
-        if "," in text:
-            edits.append({
-                "paragraph_index": idx,
-                "action": "replace",
-                "original_text": ",",
-                "suggested_text": "，",
-                "comment_text": "",
-                "category": "標點",
-                "severity": "low",
-                "reason": "中文正文應使用全形逗號。",
-                "confidence": 0.95
-            })
-
         if "在內容方面是非常" in text:
             issues.append(make_issue(
                 issue_id=f"P{idx}-delete-redundant-phrase",
@@ -101,6 +90,8 @@ def fake_proofread(paragraphs_data):
                 grade_label="中",
                 reason="冗詞，可刪減。",
                 confidence=0.9,
+                original_sentence="他說這很好",
+                suggested_sentence="他說：這很好",
             ))
 
         if "他說這很好" in text:
@@ -117,22 +108,10 @@ def fake_proofread(paragraphs_data):
                 grade_label="低",
                 reason="補上冒號，使引述語氣更清楚。",
                 confidence=0.95,
+                original_sentence="他說這很好",
+                suggested_sentence="他說：這很好",
             ))
-        if "成本為100元" in text:
-            edits.append({
-                "paragraph_index": idx,
-                "action": "add",
-                "anchor_text": "100元",
-                "position": "before",
-                "added_text": "港幣",
-                "original_text": "100元",
-                "suggested_text": "港幣100元",
-                "comment_text": "",
-                "category": "單位",
-                "severity": "low",
-                "reason": "補上幣別，使金額表述更清楚。",
-                "confidence": 0.95
-            })    
+   
         if "人物之間的關係" in text:
             issues.append(make_issue(
                 issue_id=f"P{idx}-comment-long-sentence",
@@ -149,6 +128,8 @@ def fake_proofread(paragraphs_data):
                 reason="直接改寫可能改變作者語氣，建議先用批註提醒。",
                 needs_human_review=True,
                 confidence=0.8,
+                original_sentence="他說這很好",
+                suggested_sentence="他說：這很好",
             ))
 
 

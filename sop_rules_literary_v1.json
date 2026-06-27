@@ -1,0 +1,45 @@
+{
+  "ruleset_id": "literary_sop_v1",
+  "ruleset_label": "文學類校對 SOP MVP",
+  "work_boundary": [
+    "任務是校對，不是潤飾、改寫、補寫或重寫。",
+    "優先保留作者語氣和原意。",
+    "只提出局部、精準、可定位的問題。",
+    "不確定時使用 comment，並標記 needs_human_review=true。"
+  ],
+  "locale": {
+    "language": "zh-Hant-HK",
+    "direction": "香港繁體／香港常用語方向",
+    "rule_id": "HK_TRAD"
+  },
+  "grades": [
+    {"grade": "A", "grade_label": "A 可直接改", "policy": "明確錯誤，可用 replace/delete 直接提出修訂。"},
+    {"grade": "B", "grade_label": "B 建議改", "policy": "較明確但仍可能涉及語氣，優先精準 replace；不確定則 comment。"},
+    {"grade": "C", "grade_label": "C 只標示", "policy": "不應直接改動，使用 comment 提醒。"},
+    {"grade": "D", "grade_label": "D 需人工判斷", "policy": "需要編輯或作者判斷，必須使用 comment。"}
+  ],
+  "taxonomy": [
+    {"category_code": "A", "category_label": "字形文字"},
+    {"category_code": "B", "category_label": "一致性"},
+    {"category_code": "C", "category_label": "標點符號"},
+    {"category_code": "D", "category_label": "數字格式"},
+    {"category_code": "E", "category_label": "版式結構"},
+    {"category_code": "F", "category_label": "內容一致性"},
+    {"category_code": "G", "category_label": "灰區"}
+  ],
+  "hard_rules": [
+    {"rule_id": "PUNC_ELLIPSIS", "category_code": "C", "category_label": "標點符號", "grade": "A", "rule": "中文刪節號使用 ……"},
+    {"rule_id": "PUNC_DASH", "category_code": "C", "category_label": "標點符號", "grade": "A", "rule": "中文破折號使用 ——"},
+    {"rule_id": "PUNC_QUOTES", "category_code": "C", "category_label": "標點符號", "grade": "A", "rule": "引號使用外「」內『』"},
+    {"rule_id": "PUNC_BOOK_TITLE", "category_code": "C", "category_label": "標點符號", "grade": "A", "rule": "書名號使用《》，篇名號使用〈〉"},
+    {"rule_id": "PUNC_FULLWIDTH", "category_code": "C", "category_label": "標點符號", "grade": "A", "rule": "中文標點使用全形"},
+    {"rule_id": "PUNC_NO_SPACE", "category_code": "C", "category_label": "標點符號", "grade": "A", "rule": "中文標點前後不留空格"},
+    {"rule_id": "MIXED_SPACE", "category_code": "D", "category_label": "數字格式", "grade": "B", "rule": "中英／中數混排空格需前後一致；涉及出版社風格時以 comment 提醒"}
+  ],
+  "output_policy": [
+    "A 級明確錯誤可用 replace/delete。",
+    "C 級和 D 級傾向使用 comment，不要硬改。",
+    "每條 issue 必須包含現有 schema 欄位。",
+    "如命中具體規則，加入 rule_id。"
+  ]
+}
