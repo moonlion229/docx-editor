@@ -4,6 +4,7 @@ from pathlib import Path
 
 import streamlit as st
 import pandas as pd
+from gemini_proofread import request_gemini_proofread_response
 from fake_ai_proofread import extract_paragraphs, fake_proofread, validate_edits
 from proofread_apply import apply_edits_to_docx
 from ai_issue_parser import MOCK_AI_RESPONSE_TEXT, parse_ai_issues_response
@@ -20,7 +21,7 @@ st.title("AI 校對 Word 測試版")
 st.caption("目前版本使用假 AI 規則測試流程：Word → JSON 校對建議 → 追蹤修訂 Word。")
 
 st.warning(
-    "目前只是測試版：不會連接真正 OpenAI，也不要上傳真實公司書稿或敏感文件。"
+    "目前只是測試版：不會連接真正Gemini，也不要上傳真實公司書稿或敏感文件。"
 )
 
 uploaded_file = st.file_uploader(
@@ -35,7 +36,7 @@ if uploaded_file is None:
 st.success(f"已上傳：{uploaded_file.name}")
 proofread_source = st.radio(
     "校對來源",
-    ["使用 fake_proofread()", "使用 mock AI JSON parser"],
+    ["使用 fake_proofread", "使用 Mock AI JSON", "Gemini proofread"],
 )
 with tempfile.TemporaryDirectory() as tmpdir:
     tmpdir_path = Path(tmpdir)
@@ -52,12 +53,27 @@ with tempfile.TemporaryDirectory() as tmpdir:
     st.write(f"共讀取到 {len(paragraphs_data)} 個段落。")
     st.dataframe(paragraphs_data, use_container_width=True)
 
-    if proofread_source == "使用 mock AI JSON parser":
+    if proofread_source == "Mock AI JSON":
         valid_edits, validation_errors = parse_ai_issues_response(
             MOCK_AI_RESPONSE_TEXT,
             paragraphs_data,
         )
         total_issue_count = len(valid_edits) + len(validation_errors)
+
+    elif proofread_source == "Gemini proofread":
+        response_text, gemini_error = request_gemini_proofread_response(paragraphs_data)
+
+        if gemini_error:
+            valid_edits = []
+            validation_errors = [{"error": gemini_error}]
+        else:
+            valid_edits, validation_errors = parse_ai_issues_response(
+                response_text,
+                paragraphs_data,
+            )
+
+        total_issue_count = len(valid_edits) + len(validation_errors)
+
     else:
         edits = fake_proofread(paragraphs_data)
         valid_edits, validation_errors = validate_edits(edits, paragraphs_data)
@@ -181,7 +197,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     else:
         st.info("沒有通過驗證的校對建議。")
         st.write(
-            f"總建議數：{len(edits)}｜"
+            f"總建議數：{total_issue_count}｜"
             f"通過驗證數：{len(valid_edits)}｜"
             f"已勾選套用數：0｜"
             f"驗證錯誤數：{len(validation_errors)}"
