@@ -2,13 +2,16 @@ import argparse
 import json
 from docx_editor import Document
 
+FULL_PARAGRAPH_MAX_CHARS = 1_000_000
+COMMENT_ANCHOR_MAX_CHARS = 30
+
 
 def get_paragraph_ref_and_text(doc, paragraph_index):
     """
     paragraph_index 使用 1, 2, 3... 這種人類容易理解的段落編號。
     程式內部會轉成 0, 1, 2...
     """
-    paragraphs = doc.list_paragraphs()
+    paragraphs = doc.list_paragraphs(max_chars=FULL_PARAGRAPH_MAX_CHARS)
     zero_based_index = paragraph_index - 1
 
     if zero_based_index < 0 or zero_based_index >= len(paragraphs):
@@ -18,11 +21,31 @@ def get_paragraph_ref_and_text(doc, paragraph_index):
 
     if "|" in paragraph_record:
         ref, text = paragraph_record.split("|", 1)
+        text = text.strip()
     else:
         ref = paragraph_record
         text = paragraph_record
 
     return ref, text
+
+
+def resolve_comment_anchor(edit, paragraph_text):
+    candidates = [
+        edit.get("original_text", ""),
+        edit.get("anchor_text", ""),
+        edit.get("original_sentence", ""),
+    ]
+
+    for candidate in candidates:
+        candidate = (candidate or "").strip()
+        if candidate and candidate in paragraph_text:
+            return candidate
+
+    paragraph_text = (paragraph_text or "").strip()
+    if not paragraph_text:
+        return ""
+
+    return paragraph_text[:COMMENT_ANCHOR_MAX_CHARS]
 
 
 def apply_edits_to_docx(input_file, edits_file, output_file):
@@ -48,13 +71,13 @@ def apply_edits_to_docx(input_file, edits_file, output_file):
                 skipped_count += 1
                 continue
 
-            if original_text not in paragraph_text:
-                print(f"跳過第 {i} 條：第 {paragraph_index} 段找不到「{original_text}」")
-                print(f"目前段落內容：{paragraph_text}")
-                skipped_count += 1
-                continue
-
             if action == "replace":
+                if not original_text or original_text not in paragraph_text:
+                    print(f"跳過第 {i} 條：第 {paragraph_index} 段找不到「{original_text}」")
+                    print(f"目前段落內容：{paragraph_text}")
+                    skipped_count += 1
+                    continue
+
                 doc.replace(original_text, suggested_text, paragraph=ref)
                 print(f"已套用第 {i} 條：第 {paragraph_index} 段，把「{original_text}」改成「{suggested_text}」")
                 applied_count += 1
@@ -73,10 +96,22 @@ def apply_edits_to_docx(input_file, edits_file, output_file):
                 else:
                     raise ValueError(f"Unsupported add position: {position}")
 
+                if not original_text or original_text not in paragraph_text:
+                    print(f"跳過第 {i} 條：第 {paragraph_index} 段找不到「{original_text}」")
+                    print(f"目前段落內容：{paragraph_text}")
+                    skipped_count += 1
+                    continue
+
                 # 下面這一行要照你原本 replace action 的寫法
                 doc.replace(original_text, suggested_text, paragraph=ref)
                 
             elif action == "delete":
+                if not original_text or original_text not in paragraph_text:
+                    print(f"跳過第 {i} 條：第 {paragraph_index} 段找不到「{original_text}」")
+                    print(f"目前段落內容：{paragraph_text}")
+                    skipped_count += 1
+                    continue
+
                 doc.replace(original_text, "", paragraph=ref)
                 print(f"已套用第 {i} 條：第 {paragraph_index} 段，刪除「{original_text}」")
                 applied_count += 1
@@ -86,8 +121,14 @@ def apply_edits_to_docx(input_file, edits_file, output_file):
                 if not final_comment:
                     final_comment = "請人工確認此處。"
 
-                doc.add_comment(original_text, final_comment)
-                print(f"已套用第 {i} 條：第 {paragraph_index} 段，在「{original_text}」加入批註")
+                anchor_text = resolve_comment_anchor(edit, paragraph_text)
+                if not anchor_text:
+                    print(f"跳過第 {i} 條：第 {paragraph_index} 段沒有可加入批註的錨點文字")
+                    skipped_count += 1
+                    continue
+
+                doc.add_comment(anchor_text, final_comment, paragraph=ref)
+                print(f"已套用第 {i} 條：第 {paragraph_index} 段，在「{anchor_text}」加入批註")
                 applied_count += 1
 
             else:

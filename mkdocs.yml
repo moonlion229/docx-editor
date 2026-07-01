@@ -10,6 +10,7 @@ copyright: Maintained by <a href="https://pablospe.com">pablospe</a>.
 nav:
   - Home: index.md
   - Quick Start: quickstart.md
+  - Proofread Output Spec: proofread_output_spec.md
   - API Reference: api.md
 plugins:
   - search
